@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use eframe::egui::{self, Color32, Mesh, Painter, Pos2, Rect, TextureHandle, Vec2, pos2, vec2};
 use sabbatia::companion::{Character, Mood};
+use sabbatia::dialogue::Cue;
 use serde::Deserialize;
 
 use super::assets;
@@ -153,13 +154,16 @@ enum Gesture {
     Offer,
     DogHop,
     BagSwing,
+    /// Head lowered in thought; the dog lowers its head too.
+    Ponder,
 }
 
 impl Gesture {
     #[cfg(test)]
     const HERMIT: [Gesture; 3] = [Gesture::Swing, Gesture::Nod, Gesture::Lift];
     #[cfg(test)]
-    const FOOL: [Gesture; 5] = [Gesture::Step, Gesture::LookUp, Gesture::Offer, Gesture::DogHop, Gesture::BagSwing];
+    const FOOL: [Gesture; 6] =
+        [Gesture::Step, Gesture::LookUp, Gesture::Offer, Gesture::DogHop, Gesture::BagSwing, Gesture::Ponder];
 
     fn duration(self) -> f32 {
         match self {
@@ -171,6 +175,7 @@ impl Gesture {
             Gesture::Offer => 2.4,
             Gesture::DogHop => 1.4,
             Gesture::BagSwing => 3.2,
+            Gesture::Ponder => 2.6,
         }
     }
 }
@@ -344,6 +349,7 @@ impl Puppet {
             Gesture::LookUp => self.pose(&[("head", 5.0 * b, 0.0), ("rose_arm", -3.0 * b, 0.0)], 0.0, 0.0),
             Gesture::Offer => self.pose(&[("rose_arm", -10.0 * b, 0.0), ("head", 2.0 * b, 0.0)], 0.0, 0.0),
             Gesture::DogHop => self.pose(&[("dog", 4.0 * hops(u), 9.0 * hops(u))], 0.0, 0.0),
+            Gesture::Ponder => self.pose(&[("head", -6.0 * b, 0.0), ("dog", -3.0 * b, 0.0), ("rose_arm", 3.0 * b, 0.0)], 0.0, 0.0),
             Gesture::BagSwing => {
                 let heave = puppet_bell((u * 3.0).min(1.0));
                 self.pose(&[("bag", pendulum(t, 11.0), 0.0), ("staff_arm", -2.0 * heave, 0.0)], 0.0, 0.0)
@@ -379,14 +385,23 @@ impl Puppet {
         }
     }
 
-    /// React to a click.
-    pub fn poke(&mut self, now: f64) {
-        let g = match self.who {
-            Character::Hermit => Gesture::Lift,
-            Character::Fool if self.rng.next_f32() < 0.5 => Gesture::DogHop,
-            Character::Fool => Gesture::Offer,
+    /// Act out a line of dialogue. `Still` stops any gesture: a
+    /// contemplative pause. The next idle gesture waits a little longer.
+    pub fn cue(&mut self, cue: Cue, now: f64) {
+        let g = match (self.who, cue) {
+            (_, Cue::Still) => None,
+            (Character::Hermit, Cue::Raise | Cue::Hop | Cue::LookUp) => Some(Gesture::Lift),
+            (Character::Hermit, Cue::Bow | Cue::Ponder) => Some(Gesture::Nod),
+            (Character::Hermit, Cue::Swing | Cue::Step) => Some(Gesture::Swing),
+            (Character::Fool, Cue::Raise) => Some(Gesture::Offer),
+            (Character::Fool, Cue::Bow | Cue::Ponder) => Some(Gesture::Ponder),
+            (Character::Fool, Cue::Swing) => Some(Gesture::BagSwing),
+            (Character::Fool, Cue::Step) => Some(Gesture::Step),
+            (Character::Fool, Cue::Hop) => Some(Gesture::DogHop),
+            (Character::Fool, Cue::LookUp) => Some(Gesture::LookUp),
         };
-        self.gesture = Some((g, now));
+        self.gesture = g.map(|g| (g, now));
+        self.next_gesture_at = self.next_gesture_at.max(now + 20.0);
     }
 
     fn base_pose(&self, now: f64) -> Pose {

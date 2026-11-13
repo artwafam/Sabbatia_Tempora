@@ -18,6 +18,7 @@ use eframe::egui::{
 use sabbatia::calendar::almanac::Almanac;
 use sabbatia::calendar::{CrossQuarterRule, Hemisphere, lore};
 use sabbatia::companion::{self, Character};
+use sabbatia::dialogue::{Director, Situation, Utterance};
 use sabbatia::config::{self, Config, WindowState};
 use sabbatia::i18n::{Lang, LanguagePref};
 
@@ -42,8 +43,12 @@ const DETAIL_MAX_HEIGHT: f32 = 300.0;
 /// Tallest bubble the window makes room for (the settings or the almanac
 /// with a tile open).
 const BUBBLE_MAX: f32 = 600.0;
-/// A talk bubble left alone closes by itself.
+/// A talk bubble left alone closes by itself; sooner when the companion
+/// spoke unprompted, so it never lingers like a notification.
 const TALK_TIMEOUT: Duration = Duration::from_secs(20);
+const REMARK_TIMEOUT: Duration = Duration::from_secs(12);
+/// How often the companion considers saying something unprompted.
+const MUSE_EVERY: f64 = 300.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Panel {
@@ -63,7 +68,10 @@ enum Section {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Action {
+    /// Click on the figure: what matters today (informative lines).
     Talk,
+    /// "Talk ›" / menu: a conversation in the companion's own voice.
+    Chat,
     Almanac,
     Settings,
     Close,
@@ -77,8 +85,18 @@ pub struct SabbatiaApp {
     lang: Lang,
     almanac: Almanac,
     text: Texts,
-    lines: Vec<String>,
-    line_idx: usize,
+    director: Director,
+    /// What the bubble is showing.
+    said: Option<Utterance>,
+    /// The bubble shows the companion's own dialogue rather than an
+    /// informative line.
+    chatting: bool,
+    /// Informative lines for today, and which one is showing.
+    info: Vec<String>,
+    info_idx: usize,
+    talk_timeout: Duration,
+    /// Session time of the next chance to speak unprompted.
+    next_muse: f64,
     next_refresh: DateTime<Utc>,
     panel: Panel,
     expanded: Option<Section>,
@@ -115,13 +133,39 @@ impl SabbatiaApp {
         let lang = cfg.language.resolve();
         let now = Utc::now();
         let almanac = Almanac::compute(now, &Local, cfg.calendar_settings());
-        let puppet = load_puppet(&cc.egui_ctx, cfg.character, &almanac);
+        let mut puppet = load_puppet(&cc.egui_ctx, cfg.character, &almanac);
         let (panel, expanded) = preview();
+        let mut director = Director::new(cfg.character, seed());
+        // `SABBATIA_PREVIEW=talk:<id>` or `talk:<id>:<step>` shows a given line.
+        let info = companion::lines(&almanac, lang, cfg.character);
+        // Previews: `talk` shows today's first informative line, `chat` a
+        // conversation opener, `talk:<id>[:<step>]` a particular dialogue line.
+        let s = Situation { almanac: &almanac, lang, now: 0.0 };
+        let preview_var = std::env::var("SABBATIA_PREVIEW").ok();
+        let (said, chatting) = match preview_var.as_deref() {
+            Some("talk") => (Some(info_utterance(&info, 0)), false),
+            Some("chat") => (Some(director.on_click(&s)), true),
+            Some(v) if v.starts_with("talk:") => {
+                let mut parts = v["talk:".len()..].split(':');
+                let id = parts.next().unwrap_or("");
+                let step = parts.next().and_then(|n| n.parse().ok()).unwrap_or(0);
+                (director.say(id, step, &s), true)
+            }
+            _ => (None, false),
+        };
+        if let (Some(u), Some(p), true) = (&said, &mut puppet, cfg.animations) {
+            p.cue(u.cue, 0.0);
+        }
         let applied_size = window_size(&cfg, figure_size(&cfg));
         SabbatiaApp {
             text: Texts::build(&almanac, lang),
-            lines: companion::lines(&almanac, lang, cfg.character),
-            line_idx: 0,
+            director,
+            said,
+            chatting,
+            info,
+            info_idx: 0,
+            talk_timeout: TALK_TIMEOUT,
+            next_muse: MUSE_EVERY,
             next_refresh: next_refresh_after(now, &almanac),
             almanac,
             lang,
@@ -148,10 +192,10 @@ impl SabbatiaApp {
     fn recompute(&mut self, now: DateTime<Utc>, t: f64) {
         self.almanac = Almanac::compute(now, &Local, self.cfg.calendar_settings());
         self.text = Texts::build(&self.almanac, self.lang);
-        let lines = companion::lines(&self.almanac, self.lang, self.cfg.character);
-        if lines != self.lines {
-            self.lines = lines;
-            self.line_idx = 0;
+        let info = companion::lines(&self.almanac, self.lang, self.cfg.character);
+        if info != self.info {
+            self.info = info;
+            self.info_idx = 0;
         }
         if let Some(p) = &mut self.puppet {
             p.set_mood(companion::mood(&self.almanac), t);
@@ -170,6 +214,8 @@ impl SabbatiaApp {
         }
         if self.cfg.character != before.character {
             self.puppet = load_puppet(ctx, self.cfg.character, &self.almanac);
+            self.director = Director::new(self.cfg.character, seed());
+            self.said = None;
         }
         self.notice = None;
         if self.cfg.autostart != before.autostart
@@ -192,7 +238,8 @@ impl SabbatiaApp {
     fn apply(&mut self, ctx: &egui::Context, action: Action, t: f64) {
         let before = self.cfg.clone();
         match action {
-            Action::Talk => self.open_talk(),
+            Action::Talk => self.open_talk(t),
+            Action::Chat => self.open_chat(t),
             Action::Almanac => self.panel = Panel::Almanac,
             Action::Settings => self.panel = Panel::Settings,
             Action::Close => {
@@ -211,14 +258,52 @@ impl SabbatiaApp {
         self.settings_changed(ctx, &before, t);
     }
 
-    fn open_talk(&mut self) {
-        if self.panel == Panel::Talk {
-            self.line_idx = (self.line_idx + 1) % self.lines.len().max(1);
-        }
-        self.panel = Panel::Talk;
-        self.talk_since = Instant::now();
+    /// A click on the figure: today's informative lines, the next one on
+    /// each further click.
+    fn open_talk(&mut self, t: f64) {
+        let continuing = self.panel == Panel::Talk && !self.chatting;
+        self.info_idx = if continuing { (self.info_idx + 1) % self.info.len().max(1) } else { 0 };
+        self.chatting = false;
+        let u = info_utterance(&self.info, self.info_idx);
+        self.show(u, t, TALK_TIMEOUT);
     }
 
+    /// "Talk ›": a conversation in the companion's own voice, continued on
+    /// each further click.
+    fn open_chat(&mut self, t: f64) {
+        let s = Situation { almanac: &self.almanac, lang: self.lang, now: t };
+        let u = self.director.on_click(&s);
+        self.chatting = true;
+        self.show(u, t, TALK_TIMEOUT);
+    }
+
+    fn show(&mut self, u: Utterance, t: f64, timeout: Duration) {
+        if self.cfg.animations
+            && let Some(p) = &mut self.puppet
+        {
+            p.cue(u.cue, t);
+        }
+        self.said = Some(u);
+        self.panel = Panel::Talk;
+        self.talk_since = Instant::now();
+        self.talk_timeout = timeout;
+    }
+
+    /// Now and then, the companion may say something unprompted.
+    fn muse(&mut self, t: f64) {
+        if t < self.next_muse {
+            return;
+        }
+        self.next_muse = t + MUSE_EVERY;
+        if self.panel != Panel::None || self.drag_offset.is_some() {
+            return;
+        }
+        let s = Situation { almanac: &self.almanac, lang: self.lang, now: t };
+        if let Some(u) = self.director.spontaneous(&s) {
+            self.chatting = true;
+            self.show(u, t, REMARK_TIMEOUT);
+        }
+    }
 
     fn bubble_width(&self) -> f32 {
         match self.panel {
@@ -233,17 +318,42 @@ impl SabbatiaApp {
     fn talk(&mut self, ui: &mut Ui, action: &mut Option<Action>) {
         let u = self.lang.ui();
         let w = ui.available_width();
-        let line = self.lines.get(self.line_idx).map_or("", String::as_str);
-        let g = ui.painter().layout_job(glyphs::wrapped(line, theme::semibold(12.5), theme::INK, w));
+        let mut job = egui::text::LayoutJob::default();
+        job.wrap.max_width = w;
+        if let Some(said) = &self.said {
+            // The user's own (anticipated) words: quieter, in italics.
+            let (text, format) = if said.you {
+                (
+                    format!("| {}", said.text),
+                    egui::TextFormat { font_id: theme::semibold(12.5), color: theme::INK_SOFT, italics: true, ..Default::default() },
+                )
+            } else {
+                (said.text.clone(), egui::TextFormat { font_id: theme::semibold(12.5), color: theme::INK, ..Default::default() })
+            };
+            job.append(&text, 0.0, format);
+            if said.more {
+                // There is more if you click again.
+                job.append(
+                    "  …",
+                    0.0,
+                    egui::TextFormat { font_id: theme::bold(12.5), color: theme::NIGHT, ..Default::default() },
+                );
+            }
+        }
+        let g = ui.painter().layout_job(job);
         let (r, resp) = ui.allocate_exact_size(g.size(), Sense::click());
         ui.painter().galley(r.min, g, theme::INK);
         if resp.on_hover_cursor(CursorIcon::PointingHand).clicked() {
-            self.open_talk();
+            *action = Some(if self.chatting { Action::Chat } else { Action::Talk });
         }
         ui.label(RichText::new(&self.text.date_long).font(theme::semibold(11.0)).color(theme::DIM));
         ui.horizontal(|ui| {
             if link(ui, u.almanac).clicked() {
                 *action = Some(Action::Almanac);
+            }
+            ui.add_space(6.0);
+            if link(ui, u.talk).clicked() {
+                *action = Some(Action::Chat);
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if close_button(ui, u.close).clicked() {
@@ -544,6 +654,12 @@ impl eframe::App for SabbatiaApp {
         let mut wait = (self.next_refresh - now).to_std().unwrap_or(Duration::ZERO);
         let mut action = None;
 
+        if ctx.input(|i| i.pointer.any_pressed()) {
+            self.director.touch(t);
+        }
+        self.muse(t);
+        wait = wait.min(Duration::from_secs_f64((self.next_muse - t).max(1.0)));
+
         if !self.desktop_tried {
             self.desktop = Desktop::connect(frame);
             self.desktop_tried = true;
@@ -658,7 +774,7 @@ impl eframe::App for SabbatiaApp {
                 if hovered {
                     self.talk_since = Instant::now();
                 }
-                let left = TALK_TIMEOUT.saturating_sub(self.talk_since.elapsed());
+                let left = self.talk_timeout.saturating_sub(self.talk_since.elapsed());
                 if left.is_zero() {
                     action = Some(Action::Close);
                 } else {
@@ -675,9 +791,6 @@ impl eframe::App for SabbatiaApp {
         menu_on(&fresp, self.lang, &mut action);
         let animate = self.cfg.animations;
         if let Some(p) = &mut self.puppet {
-            if fresp.clicked() {
-                p.poke(t);
-            }
             let (pose, w) = p.update(t, animate);
             p.paint(ui.painter(), fig_rect, &pose);
             if let Some(w) = w {
@@ -734,6 +847,21 @@ pub fn window_size(cfg: &Config, fig: Vec2) -> Vec2 {
     vec2(w.ceil(), (MARGIN + BUBBLE_MAX + TAIL + fig.y + BELOW_FEET).ceil())
 }
 
+/// An informative line, shown like dialogue (with a raised lantern or rose).
+fn info_utterance(info: &[String], i: usize) -> Utterance {
+    Utterance {
+        id: "info",
+        text: info.get(i).cloned().unwrap_or_default(),
+        you: false,
+        cue: sabbatia::dialogue::Cue::Raise,
+        more: false,
+    }
+}
+
+fn seed() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(1)
+}
+
 fn load_puppet(ctx: &egui::Context, who: Character, a: &Almanac) -> Option<Puppet> {
     match Puppet::load(ctx, who, companion::mood(a)) {
         Ok(p) => Some(p),
@@ -748,7 +876,7 @@ fn load_puppet(ctx: &egui::Context, who: Character, a: &Almanac) -> Option<Puppe
 /// or `season|moon|wheel|sabbat` for the almanac with that tile open.
 fn preview() -> (Panel, Option<Section>) {
     match std::env::var("SABBATIA_PREVIEW").ok().as_deref() {
-        Some("talk") => (Panel::Talk, None),
+        Some(v) if v.starts_with("talk") || v == "chat" => (Panel::Talk, None),
         Some("almanac") => (Panel::Almanac, None),
         Some("settings") => (Panel::Settings, None),
         Some("season") => (Panel::Almanac, Some(Section::Season)),
@@ -792,7 +920,7 @@ fn menu_items(ui: &mut Ui, lang: Lang, action: &mut Option<Action>) {
             ui.close();
         }
     };
-    item(ui, RichText::new(u.talk), Action::Talk);
+    item(ui, RichText::new(u.talk), Action::Chat);
     item(ui, RichText::new(u.almanac), Action::Almanac);
     item(ui, RichText::new(u.settings_menu), Action::Settings);
     ui.separator();

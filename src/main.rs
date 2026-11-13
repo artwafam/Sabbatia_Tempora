@@ -1,4 +1,4 @@
-//! Sabbatia Tempora — compact seasonal and lunar desktop companion.
+//! Sabbatia Tempora | compact seasonal and lunar desktop companion.
 
 mod ui;
 
@@ -8,10 +8,11 @@ use chrono::{Local, Utc};
 use eframe::egui;
 use sabbatia::calendar::almanac::Almanac;
 use sabbatia::companion;
+use sabbatia::dialogue::{Director, Situation};
 use sabbatia::config::{self, Config};
 
 const HELP: &str = "\
-Sabbatia Tempora — seasonal and lunar desktop companion
+Sabbatia Tempora | seasonal and lunar desktop companion
 
 Usage: sabbatia [OPTION]
 
@@ -76,11 +77,11 @@ fn print_almanac(cfg: &Config) {
     let line = |label: &str| format!("{:<14}", label.chars().next().into_iter().chain(label.chars().skip(1).flat_map(char::to_lowercase)).collect::<String>());
     println!("{}  ({})", t.date_long, t.utc_offset);
     println!();
-    println!("{}{} — {}", line(u.season), t.season_title, t.season_range);
+    println!("{}{} | {}", line(u.season), t.season_title, t.season_range);
     println!("{:<14}{}", "", t.season_progress);
-    println!("{}{} — {}", line(u.moon), t.moon_title, t.moon_sub);
-    println!("{}{} — {}", line(u.wheel), t.wheel_title, t.wheel_sub);
-    println!("{}{} — {} ({})", line(u.next_sabbat), t.sabbat_name, t.sabbat_countdown, t.sabbat_date);
+    println!("{}{} | {}", line(u.moon), t.moon_title, t.moon_sub);
+    println!("{}{} | {}", line(u.wheel), t.wheel_title, t.wheel_sub);
+    println!("{}{} | {} ({})", line(u.next_sabbat), t.sabbat_name, t.sabbat_countdown, t.sabbat_date);
     println!("{:<14}{}", "", t.sabbat_basis);
     if let Some(alt) = &t.sabbat_alternative {
         println!("{:<14}{alt}", "");
@@ -92,6 +93,13 @@ fn print_almanac(cfg: &Config) {
     println!();
     for l in companion::lines(&a, lang, cfg.character) {
         println!("  “{l}”");
+    }
+    println!();
+    let mut d = Director::new(cfg.character, 1);
+    let s = Situation { almanac: &a, lang, now: 0.0 };
+    for k in 0..4 {
+        let u = d.on_click(&Situation { now: k as f64 * 200.0, ..s });
+        println!("  {}{}", if u.you { "| " } else { "" }, u.text);
     }
 }
 

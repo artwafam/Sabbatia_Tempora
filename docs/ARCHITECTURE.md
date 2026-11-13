@@ -12,7 +12,10 @@ src/
 │   ├── almanac.rs         Almanac::compute(now, tz, settings) → snapshot
 │   └── lore.rs            descriptive texts per language, with sources
 ├── i18n.rs                Lang, UI strings, names, date and number formatting
-├── companion.rs           Character (Hermit, Fool), mood and lines, from the almanac
+├── companion.rs           Character (Hermit, Fool) and mood, from the almanac
+├── dialogue/
+│   ├── mod.rs             Director: context, selection, cooldowns, conversations
+│   └── lines.rs           the companions' lines, EN + pt-BR, with gesture cues
 ├── config.rs              TOML config, window state, XDG autostart entry
 ├── main.rs                CLI, TZ override, transparent desktop-layer window
 └── ui/                    egui front end (binary crate only)
@@ -70,6 +73,33 @@ Choreography lives in `puppet.rs`, one entry per character.
   - Fool: step, look up, offer the rose, dog hop, bag swing.
   Each fades fully to rest over its last 15%.
 
+## Dialogue
+
+`dialogue::lines` is plain data. Each entry has an id and a condition
+(`When`: always, full/new moon, waxing/waning, festival today / within a
+week / a particular one within two weeks, season, season turning, time of
+day, long session, inactivity), plus one to three steps. A step holds
+English and Portuguese text, a gesture `Cue`, and whether it is voiced as the
+user. Placeholders `{sabbat}`, `{days}` and `{season}` are filled from the
+almanac.
+
+The `Director` (one per companion, driven by a session clock so tests are
+deterministic):
+- **Clicks:** a click continues the current conversation if it's within 90
+  s. Otherwise the most important *fresh* event comes first (festival today >
+  full/new moon > approaching festival > within a week > season turning);
+  "fresh" means not given priority in the last 3 hours. Failing that, a
+  weighted choice favours lines that fit the moment. Lines said in the last
+  16 turns are not repeated.
+- **Unprompted speech:** checked every 5 minutes, and never at night. The
+  Hermit: at most every 3 hours, and only for a fresh event; a call-out after
+  a long quiet is very rare. The Fool: at most every 40 minutes; events,
+  occasional remarks, and a call-out after 45 minutes of no interaction (at
+  most every 2 hours).
+
+The puppet maps each `Cue` onto its own gestures. `Still` cancels any
+gesture. Cues are skipped when animations are off.
+
 ## The window
 
 The window is transparent and frameless, and has **one fixed size**: the
@@ -100,7 +130,8 @@ figure at its bottom-left corner, with room above for the largest bubble.
 - **Rendering:** the window draws only on input, at local midnight or every
   10 minutes for the data, and during a gesture at 20 fps for about 2–3 s
   every 20–45 s (35–70 s when sleepy). Measured idle (figure only, animations on):
-  about 220 ms of CPU per minute (0.4%) and 28 MB private memory.
+  about 0.4–0.6% of one CPU (it varies with the random idle gestures) and
+  28 MB private memory.
 - **Work per recompute:** a few dozen trigonometric series, and all strings
   are formatted then, not per frame.
 - **Binary and assets:** the renderer is glow (OpenGL); wgpu and accesskit

@@ -404,7 +404,7 @@ mod tests {
 
     #[test]
     fn moon_phase_names() {
-        // Full moon 2025-09-07 18:09 UTC — named Full all that local day.
+        // Full moon 2025-09-07 18:09 UTC | named Full all that local day.
         let a = Almanac::compute(utc(2025, 9, 7, 2, 0), &Utc, south());
         assert_eq!(a.moon.phase, MoonPhase::Full);
         let a = Almanac::compute(utc(2025, 9, 8, 12, 0), &Utc, south());

@@ -36,6 +36,41 @@ like a paper puppet.
 - **Choosing:** switch companions in the settings or from the right-click
   menu. Animations can be turned off.
 
+## How they talk
+
+**Clicking the figure** gives the informative lines, and each further click
+gives the next:
+- the next Sabbat and how far away it is;
+- a full or new moon, or tonight's phase and illumination;
+- a season about to turn;
+- the current Wheel period.
+
+**Talk ›** in the bubble (or "Talk" in the right-click menu) starts a
+conversation in the companion's own voice. Click the bubble or Talk › again
+to continue it. Conversations never replace the informative lines; they
+happen only when you ask, or when the companion speaks up on his own.
+
+The companions are characters, not assistants. They each have their own
+voice:
+- **The Hermit:** short, calm, dryly funny.
+- **The Fool:** curious, easily distracted, always ready to go, with a dog
+  who has opinions.
+
+About 50 entries each, in English and Brazilian Portuguese:
+- **Contents:** greetings, seasons, moon phases, each Sabbat, time of day,
+  humour, and short conversations that continue when you click again (the
+  bubble shows "…" when there is more).
+- **What they react to:** what the almanac says today. A festival, a full or
+  new moon, or a season turning gets mentioned first, and then not again for
+  a few hours. Recent lines aren't repeated.
+- **Gestures:** each line comes with a gesture. The Hermit raises his
+  lantern, bows his head, or stays perfectly still. The Fool lifts his rose,
+  swings his bag, steps or ponders, and the dog hops.
+- **Speaking unprompted:** rarely, and never at night. The Fool might
+  comment now and then, or call out after a long quiet. The Hermit mostly
+  keeps his silence, and speaks up only for something worth noticing. Such a
+  bubble closes by itself after 12 seconds.
+
 ## On the desktop
 
 - **Placement:** he sits on the desktop layer, beneath all windows, on every
@@ -114,13 +149,16 @@ months.
 ## Development
 
 ```sh
-cargo test                       # 54 tests
+cargo test                       # 65 tests
 cargo run
-SABBATIA_PREVIEW=talk cargo run  # open with the bubble showing, for screenshots
+SABBATIA_PREVIEW=talk cargo run  # open with today's informative line showing
 ```
 
-`SABBATIA_PREVIEW` also accepts `almanac`, `season`, `moon`, `wheel`,
-`sabbat`, `settings`, `happy` and `sleepy`. The art is rebuilt from the
+`SABBATIA_PREVIEW` also accepts `chat` (a conversation opener), `almanac`,
+`season`, `moon`, `wheel`, `sabbat`, `settings`, `happy` and `sleepy`.
+`talk:<id>` or `talk:<id>:<step>`
+shows one particular line, for example `talk:h.waxing:1` (ids are in
+`src/dialogue/lines.rs`). The art is rebuilt from the
 original scans with `tools/prepare_puppet.py hermit|fool` and
 `tools/prepare_icons.py`.
 
