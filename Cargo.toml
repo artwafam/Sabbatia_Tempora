@@ -1,6 +1,6 @@
 [package]
 name = "sabbatia"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.95"
 description = "Sabbatia Tempora, a compact seasonal and lunar desktop companion"
@@ -36,10 +36,18 @@ strip = true
 name = "sabbatia"
 maintainer = "Arthur Fernandes"
 section = "utils"
+extended-description = """\
+A small companion that lives on the Linux desktop: the Hermit or the Fool \
+from the 1909 Rider-Waite-Smith tarot, jointed like a paper puppet. Click \
+him to hear about the current season, moon phase, Wheel of the Year period \
+and the next Sabbat, or open the almanac for details. Dates are computed \
+astronomically (Meeus). Works fully offline. English and Brazilian \
+Portuguese."""
 assets = [
     ["target/release/sabbatia", "usr/bin/", "755"],
     ["packaging/sabbatia.desktop", "usr/share/applications/", "644"],
     ["assets/sabbatia.png", "usr/share/icons/hicolor/96x96/apps/", "644"],
     ["CREDITS.md", "usr/share/doc/sabbatia/", "644"],
+    ["LICENSE", "usr/share/doc/sabbatia/", "644"],
     ["assets/fonts/OFL.txt", "usr/share/doc/sabbatia/", "644"],
 ]

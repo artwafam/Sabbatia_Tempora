@@ -163,3 +163,8 @@ original scans with `tools/prepare_puppet.py hermit|fool` and
 `tools/prepare_icons.py`.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [CREDITS.md](CREDITS.md).
+
+## License
+
+MIT, see [LICENSE](LICENSE). The tarot artwork is public domain and the
+Nunito font is under the SIL Open Font License; see [CREDITS.md](CREDITS.md).
