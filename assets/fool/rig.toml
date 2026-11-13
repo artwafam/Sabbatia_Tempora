@@ -5,7 +5,7 @@ height = 360
 
 [[part]]
 name = "staff_arm"
-x = 4
+x = 9
 y = 9
 pivot = [104.5, 96.8]
 
@@ -17,7 +17,7 @@ pivot = [148.4, 212.9]
 
 [[part]]
 name = "body"
-x = 5
+x = 73
 y = 3
 
 [[part]]
@@ -43,5 +43,5 @@ hang = true
 [[part]]
 name = "dog"
 x = 170
-y = 250
+y = 256
 pivot = [236.1, 353.5]

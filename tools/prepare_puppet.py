@@ -97,8 +97,29 @@ FOOL_OUTLINE = [(40, 650), (470, 385), (515, 280), (690, 245), (765, 195), (895,
                 (1045, 650), (1015, 905), (900, 915), (765, 905), (745, 1040), (805, 1165), (800, 1285), (700, 1335),
                 (600, 1305), (585, 1425), (445, 1425), (430, 1260), (415, 1060), (355, 1060), (335, 900), (150, 885),
                 (40, 790)]
-DOG_OUTLINE = [(700, 1245), (780, 1235), (838, 1160), (968, 1160), (980, 1225), (1002, 1262), (1048, 1288),
-               (1052, 1400), (1030, 1580), (880, 1580), (855, 1448), (760, 1428), (700, 1335)]
+DOG_OUTLINE = [(700, 1245), (780, 1235), (838, 1160), (968, 1160), (980, 1225), (1002, 1262), (1043, 1290),
+               (1045, 1400), (1030, 1572), (880, 1572), (855, 1448), (760, 1428), (700, 1335)]
+# The back boot (its toe points left), so the yellow sky around it is still
+# removed even though the boot is a similar yellow.
+BACK_BOOT = [(482, 1212), (566, 1212), (568, 1330), (576, 1392), (468, 1392), (470, 1360), (482, 1330)]
+# The raised front boot and shin, kept left of the shin's right-hand ink line
+# (sky and snow lie beyond it).
+FRONT_BOOT = [(672, 1128), (716, 1112), (800, 1240), (795, 1290), (672, 1290)]
+# Leftovers that touch the figure's ink and so survive the background
+# growth: the card's left frame line where the staff meets it, strands of
+# mountain outline beside the back boot, and cliff edges under the front foot
+# and around the dog's paws.
+FOOL_ERASE = [
+    box(30, 590, 76, 840),        # card frame line at the staff's tip
+    box(420, 1270, 479, 1305),    # mountain outline left of the back boot
+    box(569, 1238, 600, 1265),    # …and right of it
+    box(585, 1205, 650, 1250),    # mountain outline between the legs
+    box(690, 1352, 845, 1450),    # cliff under the front foot
+    box(836, 1432, 928, 1600),    # cliff left of the dog's hind paws
+    box(1004, 1490, 1075, 1600),  # cliff right of them
+    box(850, 1150, 890, 1183),    # snow above the dog's nose
+    box(1012, 1255, 1075, 1303),  # rock above the dog's tail
+]
 
 
 def fool_mask(img: Image.Image) -> Image.Image:
@@ -109,9 +130,9 @@ def fool_mask(img: Image.Image) -> Image.Image:
     thick = img.filter(ImageFilter.MinFilter(5))  # ink grows ~2 px, closing small gaps
     px = thick.load()
     # Where white is part of the figure: the dog, the boots, the shirt, the rose.
-    white_ok = poly_mask(img.size, DOG_OUTLINE, box(462, 1215, 578, 1415), box(670, 1130, 800, 1290),
+    white_ok = poly_mask(img.size, DOG_OUTLINE, BACK_BOOT, FRONT_BOOT,
                          box(90, 600, 470, 800), box(460, 480, 580, 580), box(900, 470, 1030, 580)).load()
-    boots = poly_mask(img.size, box(462, 1215, 578, 1415), box(670, 1130, 800, 1290)).load()
+    boots = poly_mask(img.size, BACK_BOOT, FRONT_BOOT).load()
     outline = poly_mask(img.size, FOOL_OUTLINE, DOG_OUTLINE).load()
     bg = bytearray(W * H)
     for y in range(H):
@@ -131,7 +152,8 @@ def fool_mask(img: Image.Image) -> Image.Image:
                 seen[i] = 1
                 q.append(i)
     # Background pockets enclosed by the figure (between the legs, under the staff).
-    for x, y in [(600, 1200), (640, 1260), (400, 500), (300, 840), (860, 940), (700, 1100)]:
+    # …and the snow walled in beside the raised shin.
+    for x, y in [(600, 1200), (640, 1260), (400, 500), (300, 840), (860, 940), (700, 1100), (775, 1170), (770, 1185)]:
         i = y * W + x
         if bg[i] and not seen[i]:
             seen[i] = 1
@@ -144,10 +166,42 @@ def fool_mask(img: Image.Image) -> Image.Image:
                 seen[j] = 1
                 q.append(j)
     fig = Image.frombytes("L", (W, H), bytes(0 if s else 255 for s in seen))
-    ground = poly_mask(img.size, box(46, 46, W - 46, 1408), DOG_OUTLINE)
+    # Ground: the back boot's sole rests on the cliff at y ≈ 1393.
+    ground = poly_mask(img.size, box(46, 46, W - 46, 1393), DOG_OUTLINE)
     fig = ImageChops.multiply(ImageChops.multiply(fig, ground), poly_mask(img.size, FOOL_OUTLINE, DOG_OUTLINE))
-    # A strand of mountain outline caught between the legs.
-    fig = ImageChops.subtract(fig, poly_mask(img.size, box(585, 1205, 650, 1250)))
+    fig = ImageChops.subtract(fig, poly_mask(img.size, *FOOL_ERASE))
+    # The dog is white with black markings. Below his head, anything warm
+    # (the cliff's tan rock and red hatching) or blue (snow) inside his
+    # outline is background seen between his back, legs and tail.
+    o = img.load()
+    behind_dog = Image.new("L", img.size, 0)
+    bd = behind_dog.load()
+    dog = poly_mask(img.size, DOG_OUTLINE).load()
+    for y in range(1262, 1600):
+        for x in range(820, 1080):
+            if dog[x, y]:
+                r, g, b = o[x, y]
+                if (r > 90 and r - b > 55) or (b > r + 10 and b > 100):
+                    bd[x, y] = 255
+    # Close the hatching's thin gaps so the whole rock patch goes, not just
+    # its coloured stripes.
+    behind_dog = behind_dog.filter(ImageFilter.MaxFilter(5)).filter(ImageFilter.MinFilter(3))
+    fig = ImageChops.subtract(fig, behind_dog)
+    # The rock's black strokes remain. The dog's own ink (outline, spots)
+    # always borders his white fur; strokes sticking out into empty space do
+    # not. On the dog, keep only what lies within ~9 px of fur.
+    dog_box = box(840, 1150, 1080, 1600)
+    fur = Image.new("L", img.size, 0)
+    fp = fur.load()
+    for y in range(1150, 1600):
+        for x in range(840, 1080):
+            if dog[x, y]:
+                r, g, b = o[x, y]
+                if min(r, g, b) > 165 and max(r, g, b) - min(r, g, b) < 50:
+                    fp[x, y] = 255
+    near_fur = fur.filter(ImageFilter.MaxFilter(19))
+    far_from_fur = ImageChops.subtract(ImageChops.multiply(poly_mask(img.size, DOG_OUTLINE), poly_mask(img.size, dog_box)), near_fur)
+    fig = ImageChops.subtract(fig, far_from_fur)
     fig = fig.filter(ImageFilter.MinFilter(5))  # undo the ink thickening at the outer edge
     fig = fig.filter(ImageFilter.MaxFilter(3)).filter(ImageFilter.MinFilter(3))
     out = component(fig, (560, 700))
