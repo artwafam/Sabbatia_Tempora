@@ -1,5 +1,7 @@
 # Sabbatia Tempora
 
+<img width="1920" height="880" alt="banner" src="https://github.com/user-attachments/assets/65ec3953-d2a4-4cfc-878b-039b93edc352" />
+
 A small companion that lives on your Linux desktop, among the icons and
 folders. It is a figure from the 1909 Rider–Waite–Smith tarot: **the
 Hermit** with his lantern, or **the Fool** with his little dog. He keeps
@@ -19,6 +21,8 @@ say. From the bubble, **Almanac ›** opens four tiles:
 It works fully offline, with no background services and no network access.
 
 ## The companions
+
+<img width="400" height="836" alt="almanac" src="https://github.com/user-attachments/assets/8891c295-bcaa-4533-8572-e448a3aaa9ef" />
 
 Each is cut out of a public-domain scan of the original card and jointed
 like a paper puppet.
