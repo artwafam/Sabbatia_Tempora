@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Sabbatia Tempora
+GenericName=Seasonal and Lunar Companion
+GenericName[pt_BR]=Companheiro sazonal e lunar
+Comment=Seasons, lunar phases and the Wheel of the Year at a glance
+Comment[pt_BR]=Estações, fases da lua e a Roda do Ano num relance
+Exec=sabbatia
+Icon=sabbatia
+Terminal=false
+Categories=Utility;Science;Astronomy;
+Keywords=moon;season;solstice;equinox;sabbat;wheel;calendar;
+StartupWMClass=sabbatia

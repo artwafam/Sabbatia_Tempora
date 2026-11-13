@@ -1,0 +1,45 @@
+[package]
+name = "sabbatia"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+description = "Sabbatia Tempora — a compact seasonal and lunar desktop companion"
+license = "MIT"
+readme = "README.md"
+categories = ["date-and-time", "science"]
+
+[lib]
+name = "sabbatia"
+path = "src/lib.rs"
+
+[[bin]]
+name = "sabbatia"
+path = "src/main.rs"
+
+[dependencies]
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+serde = { version = "1.0.229", features = ["derive"] }
+toml = { version = "1.2.1", default-features = false, features = ["std", "serde", "parse", "display"] }
+eframe = { version = "0.37.0", default-features = false, features = ["glow", "x11", "wayland", "default_fonts"] }
+png = "0.18.1"
+x11rb = { version = "0.13.2", features = ["shape"] }
+raw-window-handle = "0.6.2"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[package.metadata.deb]
+name = "sabbatia"
+maintainer = "Arthur Fernandes"
+section = "utils"
+assets = [
+    ["target/release/sabbatia", "usr/bin/", "755"],
+    ["packaging/sabbatia.desktop", "usr/share/applications/", "644"],
+    ["assets/sabbatia.png", "usr/share/icons/hicolor/96x96/apps/", "644"],
+    ["CREDITS.md", "usr/share/doc/sabbatia/", "644"],
+    ["assets/fonts/OFL.txt", "usr/share/doc/sabbatia/", "644"],
+]
